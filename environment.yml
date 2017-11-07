@@ -1,0 +1,8 @@
+name: matchstick
+dependencies:
+  - python=3.6
+  - numpy
+  - pandas
+  - pip:
+    - fuzzywuzzy
+    - python-Levenshtein
