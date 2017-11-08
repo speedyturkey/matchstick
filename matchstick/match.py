@@ -145,6 +145,7 @@ class Matcher(object):
         filters = (crossed[field['levenshtein']].le(field['precision']) for field in fields)
         chained_filters = reduce(and_, filters)
         # Only return results inside the specified distance.
+        crossed['matched_to'] = crossed[self.left_id_field]
         crossed = crossed[chained_filters]
         return crossed
 
