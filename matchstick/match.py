@@ -161,10 +161,12 @@ class Matcher(object):
         for match_type in match_criteria:
             assert 'method' in match_type.keys()
             assert match_type['method'] in ['exact_match', 'function', 'levenshtein']
+            if match_type['method'] == 'exact_match':
+                assert 'fields' in match_type.keys()
             if match_type['method'] == 'function':
                 assert 'function' in match_type.keys()
                 assert hasattr(match_type['function'], '__call__')
-            if match_type['method'] == 'levenshteinn':
+            if match_type['method'] == 'levenshtein':
                 assert 'fields' in match_type.keys()
                 for field in match_type['fields']:
                     assert 'field_name' in field.keys()

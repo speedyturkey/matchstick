@@ -26,9 +26,84 @@ class testCrossJoin(unittest.TestCase):
 
 class testMatcher(unittest.TestCase):
 
+    def test_validate_match_criteria(self):
+        no_method = [{
+            'type_id': 1,
+            'fields': ['first_name', 'last_name']
+        }]
+        invalid_method = [{
+            'type_id': 1,
+            'method': 'match_exactly',
+            'fields': ['first_name', 'last_name']
+        }]
+        exact_missing_fields = [{
+            'type_id': 1,
+            'method': 'exact_match',
+        }]
+        missing_function = [{
+            'type_id': 1,
+            'method': 'function',
+        }]
+        no_callable = [{
+            'type_id': 1,
+            'method': 'function',
+            'function': "You can't call a string!"
+        }]
+        levenshtein_missing_fields = [{
+            'type_id': 1,
+            'method': 'levenshtein',
+        }]
+        levenshtein_missing_field_name = [{
+            'type_id': 4,
+            'method': 'levenshtein',
+            'fields': [
+                {'field_name': 'first_name', 'precision': 1},
+                {'precision': 2}
+            ]
+        }]
+        levenshtein_missing_precision = [{
+            'type_id': 4,
+            'method': 'levenshtein',
+            'fields': [
+                {'field_name': 'first_name'},
+            ]
+        }]
+        levenshtein_invalid_precision = [{
+            'type_id': 4,
+            'method': 'levenshtein',
+            'fields': [
+                {'field_name': 'first_name', 'precision': '1'},
+            ]
+        }]
+        for bad_match_criteria in [
+            no_method,
+            invalid_method,
+            exact_missing_fields,
+            missing_function,
+            no_callable,
+            levenshtein_missing_fields,
+            levenshtein_missing_field_name,
+            levenshtein_missing_precision,
+            levenshtein_invalid_precision
+        ]:
+            with self.assertRaises(AssertionError):
+                Matcher.validate_match_criteria(bad_match_criteria)
+
+    def test_constructor(self):
+        list1, list2 = get_lists_of_lists()
+        matcher = Matcher(list1, 'id1', list2, 'id2')
+        self.assertIsInstance(matcher.left_data, pd.DataFrame)
+        self.assertIsInstance(matcher.right_data, pd.DataFrame)
+        with self.assertRaises(ValueError):
+            Matcher(list1, 'id2', list2, 'id2')
+        with self.assertRaises(ValueError):
+            Matcher(list1, 'id1', list2, 'id1')
+
     def test_exact_field_match(self):
         df1, df2 = get_match_data()
         matcher = Matcher(df1, 'id1', df2, 'id2')
+        self.assertIsInstance(matcher.left_data, pd.DataFrame)
+        self.assertIsInstance(matcher.right_data, pd.DataFrame)
         matched = matcher.match_on_field(['field'])
         self.assertEqual(len(matched), 1)
         self.assertEqual(matched.iloc[0]['field'], 'baz')
@@ -68,8 +143,29 @@ class testMatcher(unittest.TestCase):
         match_types = get_match_types()
         matcher = Matcher(df1, 'id1', df2, 'id2')
         matched = matcher.create_matches(match_types)
-        self.assertEqual(str(matched), "< MatchResult: 3 records; id1 to id2 >")
-        # TODO write asserts
+        self.assertEqual(str(matcher), "< MatchMaker: 3 records identified by id1; 3 records identified by id2 >")
+        self.assertEqual(str(matched), "< MatchResult: 5 records; id1 to id2 >")
+        self.assertEqual(len(matched.core_data[matched.core_data['match_type'] == 1]), 1)
+        self.assertEqual(len(matched.core_data[matched.core_data['match_type'] == 2]), 2)
+        self.assertEqual(len(matched.core_data[matched.core_data['match_type'] == 3]), 2)
+        self.assertEqual(len(matched.core_data[(matched.core_data['id1'] == 1) & (matched.core_data['id2'] == 100)]), 2)
+        self.assertEqual(len(matched.core_data[(matched.core_data['id1'] == 2) & (matched.core_data['id2'] == 101)]), 1)
+        self.assertEqual(len(matched.core_data[(matched.core_data['id1'] == 3) & (matched.core_data['id2'] == 102)]), 2)
+
+
+def get_lists_of_lists():
+    list1 = [
+        {'field': 'foo', 'id1': 1},
+        {'field': 'bar', 'id1': 2},
+        {'field': 'baz', 'id1': 3}
+    ]
+    list2 = [
+        {'field': 'food', 'id2': 100},
+        {'field': 'barn', 'id2': 101},
+        {'field': 'baz', 'id2': 102}
+    ]
+
+    return list1, list2
 
 
 def get_sample_data():
@@ -132,6 +228,11 @@ def get_match_types():
             'type_id': 1,
             'method': 'exact_match',
             'fields': ['first']
+        },
+        {
+            'type_id': 3,
+            'method': 'function',
+            'function': lambda row: row['first'][:1] + row['last'][:1]
         },
         {
             'type_id': 2,
