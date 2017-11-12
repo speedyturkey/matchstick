@@ -4,7 +4,7 @@ import pandas as pd
 import Levenshtein
 
 
-def df_crossjoin(df1, df2, **kwargs):
+def crossjoin_dataframes(df1, df2, **kwargs):
     """
     Creates a cross-join (Cartesian product) between two DataFrames.
     Adapted from from mkonrad.net
@@ -24,12 +24,29 @@ def df_crossjoin(df1, df2, **kwargs):
     return product
 
 
+def remove_duplicate_matches(data, id_fields):
+    """
+
+    :param data: A dataframe containing (at least) left_id_field, right_id_field, and match_type.
+    :param id_fields: A list containing the names of the left_id_field and right_id_field.;
+    :return: De-duped match data, keeping only the highest-priority match type.
+    """
+
+    assert isinstance(data, pd.DataFrame)
+    assert isinstance(id_fields, list)
+    for field in id_fields:
+        assert field in data.columns
+
+    return data.sort_values('match_type').drop_duplicates(
+        subset=id_fields,
+        keep='first')
+
 class Matcher(object):
     """
     Matcher is used to perform matching or record linkage between two datasets (or between one dataset and itself).
     Provides a flexible mechanism to return results using specified match criteria.
     """
-    def __init__(self, left_data, left_id_field, right_data, right_id_field):
+    def __init__(self, left_data, left_id_field, right_data, right_id_field, suffixes=None):
         if isinstance(left_data, pd.DataFrame):
             self.left_data = left_data
         else:
@@ -44,6 +61,7 @@ class Matcher(object):
         if right_id_field not in self.right_data.columns:
             raise ValueError("Field {} not present in right data.".format(right_id_field))
         self.right_id_field = right_id_field
+        self.suffixes = suffixes or ['_left', '_right']
 
     def __str__(self):
         return "< MatchMaker: {} records identified by {}; {} records identified by {} >".format(
@@ -81,7 +99,8 @@ class Matcher(object):
         :param type_id: Integer (optional) indicating the specific match type within a set of match criteria.
         :return: A DataFrame of the results matched using the provided parameters.
         """
-        merged_df = pd.merge(self.left_data, self.right_data, on=field_list)
+
+        merged_df = pd.merge(self.left_data, self.right_data, on=field_list, suffixes=self.suffixes)
         merged_df['matched_to'] = merged_df[self.left_id_field]
         merged_df['match_type'] = type_id
         return merged_df
@@ -94,10 +113,16 @@ class Matcher(object):
         :param type_id: Integer (optional) indicating the specific match type within a set of match criteria.
         :return: A DataFrame of the results matched using the provided parameters.
         """
-        self.left_data['MatchCol'] = self.left_data.apply(func, axis=1)
-        self.right_data['MatchCol'] = self.right_data.apply(func, axis=1)
-        result = self.match_on_field(['MatchCol'], type_id)
-        result.drop('MatchCol', axis=1, inplace=True)
+        if hasattr(func, '__name__'):
+            match_column = func.__name__
+        else:
+            match_column = 'MatchColumn'
+        self.left_data[match_column] = self.left_data.apply(func, axis=1)
+        self.right_data[match_column] = self.right_data.apply(func, axis=1)
+        result = self.match_on_field([match_column], type_id)
+        self.left_data.drop(match_column, axis=1, inplace=True)
+        self.right_data.drop(match_column, axis=1, inplace=True)
+        result.drop(match_column, axis=1, inplace=True)
         return result
 
     def levenshtein(self, fields, type_id=None):
@@ -116,15 +141,12 @@ class Matcher(object):
             assert field['field_name'] in self.left_data.columns
             assert field['field_name'] in self.right_data.columns
 
-        suffix1 = '_left'
-        suffix2 = '_right'
-
         for field in fields:
-            field['left'] = field['field_name'] + suffix1
-            field['right'] = field['field_name'] + suffix2
+            field['left'] = field['field_name'] + self.suffixes[0]
+            field['right'] = field['field_name'] + self.suffixes[1]
             field['levenshtein'] = field['field_name'] + '_levenshtein_distance'
 
-        crossed = df_crossjoin(self.left_data, self.right_data, suffixes=[suffix1, suffix2])
+        crossed = crossjoin_dataframes(self.left_data, self.right_data, suffixes=self.suffixes)
         crossed['match_type'] = type_id
 
         # Minimum Levenshtein distance between two strings is the difference in their length.
@@ -191,3 +213,13 @@ class MatchResult(object):
             self.left_id_field,
             self.right_id_field
         )
+
+    @property
+    def unique_matches(self):
+        return remove_duplicate_matches(
+            self.core_data,
+            [self.left_id_field, self.right_id_field]
+        )
+
+
+

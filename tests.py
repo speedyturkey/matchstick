@@ -1,13 +1,15 @@
 import unittest
+import numpy as np
 import pandas as pd
-from matchstick import df_crossjoin, Matcher
+from matchstick import Matcher
+from matchstick import crossjoin_dataframes, remove_duplicate_matches
 
 
-class testCrossJoin(unittest.TestCase):
+class TestFunctions(unittest.TestCase):
 
     def test_join_two_dataframes(self):
         df1, df2 = get_sample_data()
-        crossed = df_crossjoin(df1, df2)
+        crossed = crossjoin_dataframes(df1, df2)
         self.assertEqual(len(crossed), 9)
         for field in ['field1', 'field2', 'field3', 'field4']:
             self.assertIn(field, crossed.columns)
@@ -16,15 +18,31 @@ class testCrossJoin(unittest.TestCase):
 
     def test_self_join_dataframe(self):
         df1, _ = get_sample_data()
-        crossed = df_crossjoin(df1, df1, suffixes=['_left', '_right'])
+        crossed = crossjoin_dataframes(df1, df1, suffixes=['_left', '_right'])
         self.assertEqual(len(crossed), 9)
         for field in ['field1_left', 'field2_right']:
             self.assertIn(field, crossed.columns)
         filtered = crossed[(crossed['field1_left'] == 1) & (crossed['field2_left'] == 2)]
         self.assertEqual(len(filtered), 3)
 
+    def test_remove_duplicate_matches(self):
+        df = pd.DataFrame([
+            {'id1': 1, 'id2': 1, 'match_type': 1},
+            {'id1': 1, 'id2': 1, 'match_type': 2},
+            {'id1': 2, 'id2': 2, 'match_type': 2},
+            {'id1': 2, 'id2': 2, 'match_type': 3},
+            {'id1': 2, 'id2': 2, 'match_type': 4},
+            {'id1': 3, 'id2': 3, 'match_type': None},
+            {'id1': 3, 'id2': 3, 'match_type': None},
+        ])
+        unique = remove_duplicate_matches(df, ['id1', 'id2'])
+        self.assertEqual(len(unique[(unique['id1'] == 1) & (unique['id2'] == 1)]), 1)
+        self.assertEqual(unique.iloc[0]['match_type'], 1)
+        self.assertEqual(unique.iloc[1]['match_type'], 2)
+        self.assertTrue(np.isnan(unique.iloc[2]['match_type']))
 
-class testMatcher(unittest.TestCase):
+
+class TestMatcher(unittest.TestCase):
 
     def test_validate_match_criteria(self):
         no_method = [{
@@ -151,6 +169,10 @@ class testMatcher(unittest.TestCase):
         self.assertEqual(len(matched.core_data[(matched.core_data['id1'] == 1) & (matched.core_data['id2'] == 100)]), 2)
         self.assertEqual(len(matched.core_data[(matched.core_data['id1'] == 2) & (matched.core_data['id2'] == 101)]), 1)
         self.assertEqual(len(matched.core_data[(matched.core_data['id1'] == 3) & (matched.core_data['id2'] == 102)]), 2)
+        self.assertEqual(len(matched.unique_matches), len(matched.core_data) - 2)
+        self.assertEqual(matched.unique_matches.iloc[0]['match_type'], 1)
+        self.assertEqual(matched.unique_matches.iloc[1]['match_type'], 2)
+        self.assertEqual(matched.unique_matches.iloc[2]['match_type'], 3)
 
 
 def get_lists_of_lists():
