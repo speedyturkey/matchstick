@@ -7,12 +7,19 @@ import Levenshtein
 def crossjoin_dataframes(df1, df2, **kwargs):
     """
     Creates a cross-join (Cartesian product) between two DataFrames.
-    Adapted from from mkonrad.net
 
-    :param df1: First DataFrame.
-    :param df2: Second DataFrame.
-    :param kwargs: Any keyword arguments to be applied to the resulting DataFrame.
-    :return: A DataFrame consisting of the cross-join between the provided DataFrames.
+    Parameters
+    ----------
+    df1: DataFrame
+        First (left) DataFrame
+    df2 : DataFrame
+        Second (right) DataFrame
+    kwargs : dictionary
+        Keyword arguments to be applied to the resulting DataFrame.
+
+    Returns
+    -------
+    DataFrame : Cartesian product of df1 and df2
     """
     tmp1 = df1.copy()
     tmp2 = df2.copy()
@@ -26,10 +33,17 @@ def crossjoin_dataframes(df1, df2, **kwargs):
 
 def remove_duplicate_matches(data, id_fields):
     """
+    Removes duplicate match data, keeping only the highest-priority match type per matched pair.
 
-    :param data: A dataframe containing (at least) left_id_field, right_id_field, and match_type.
-    :param id_fields: A list containing the names of the left_id_field and right_id_field.;
-    :return: De-duped match data, keeping only the highest-priority match type.
+    Parameters
+    ----------
+    data : DataFrame
+        Must contain (at least) columns for left_id_field, right_id_field, and match_type
+    id_fields: list of strings
+        Contains names of left_id_field and right_id_field
+    Returns
+    -------
+    DataFrame : Containing distinct matches
     """
 
     assert isinstance(data, pd.DataFrame)
@@ -45,7 +59,21 @@ def remove_duplicate_matches(data, id_fields):
 class Matcher(object):
     """
     Matcher is used to perform matching or record linkage between two datasets (or between one dataset and itself).
-    Provides a flexible mechanism to return results using specified match criteria.
+    Provides a flexible mechanism to return results using customizable match criteria.
+
+    Parameters
+    ----------
+    left_data : DataFrame or list of dictionaries
+        Dataset that is being matched against (your "population" data)
+    left_id_field : string
+        Name of the field which uniquely identifies records within left_data
+    right_data : DataFrame or list of dictionaries
+        Dataset that is being matched (your "new" data)
+    right_id_field : string
+        Name of the field which uniquely identifies records within right_data
+    :param suffixes: list of two strings, default ["_left", "_right"]
+        Names applied to overlapping column names in left_data and right_data, respectively
+
     """
     def __init__(self, left_data, left_id_field, right_data, right_id_field, suffixes=None):
         if isinstance(left_data, pd.DataFrame):
@@ -74,9 +102,19 @@ class Matcher(object):
 
     def create_matches(self, match_criteria):
         """
-        Iterates through provided match_criteria, performing matches between the provided data sets.
-        :param match_criteria: A dictionary following certain conventions - see documentation.
-        :return: MatchResult object containing successful match data.
+        Iterates through provided match criteria, linking records between left_data and right_data.
+
+        Parameters
+        ----------
+        match_criteria : list of dictionaries
+            Each inner dictionary defines an individual match type, choosing from amongst several available
+            mechanisms - exact match, apply function, or Levenshtein distance.
+
+        Returns
+        -------
+        MatchResult object
+            Contains information about the matches which were made between the two datasets.
+
         """
         self.validate_match_criteria(match_criteria)
         results = []
@@ -105,9 +143,15 @@ class Matcher(object):
         """
         Returns data which exactly matches on one or more provided fields.
 
-        :param field_list: A List of one or more fields upon which to match exactly.
-        :param type_id: Integer (optional) indicating the specific match type within a set of match criteria.
-        :return: A DataFrame of the results matched using the provided parameters.
+        Parameters
+        ----------
+        field_list : list of one or more strings
+            Records with matching values in each field across the two datasets are considered to be matches.
+        type_id : int or string (optional), default None
+            Used to uniquely identify an individual match type
+        Returns
+        -------
+        DataFrame
         """
         merged_df = pd.merge(self.left_data, self.right_data, on=field_list, suffixes=self.suffixes)
         merged_df['matched_to'] = merged_df[self.left_id_field]
@@ -116,11 +160,17 @@ class Matcher(object):
 
     def match_on_function(self, func, type_id=None):
         """
-        Returns data matched using the provided function.
+        Returns data which matches after the provided callable is applied.
 
-        :param func: A callable which will be applied to the provided datasets.
-        :param type_id: Integer (optional) indicating the specific match type within a set of match criteria.
-        :return: A DataFrame of the results matched using the provided parameters.
+        Parameters
+        ----------
+        func : function, lambda, or other callable
+            Will be applied to left_data and right_data
+        type_id : int or string (optional), default None
+            Used to uniquely identify an individual match type
+        Returns
+        -------
+        DataFrame
         """
         if hasattr(func, '__name__'):
             match_column = func.__name__
@@ -141,10 +191,16 @@ class Matcher(object):
         provided datasets, and the Levenshtein Distance is calculated for each applicable field. Results are filtered
         to the specified level of precision.
 
-        :param fields: A list of dictionaries, including field names and desired precision. Precision is an integer
-        indicating the maximum allowed Levenshtein distance for a record to be matched.
-        :param type_id: Integer (optional) indicating the specific match type within a set of match criteria.
-        :return: A DataFrame of the results matched using the provided parameters.
+        Parameters
+        ----------
+        fields : list of dictionaries
+            including field names and desired precision eg {'field_name': first_name, 'precision': 2}
+            Precision is an integer indicating the maximum allowed Levenshtein distance for a record to be matched.
+        type_id : int or string (optional), default None
+            Used to uniquely identify an individual match type
+        Returns
+        -------
+        DataFrame : Contains columns from left_data and right_data where a match is made using provided criteria
         """
         for field in fields:
             assert field['field_name'] in self.left_data.columns
@@ -186,8 +242,33 @@ class Matcher(object):
         Ensure that match_criteria are properly defined according to required logic.
         Malformed match_criteria will result in an assertion error.
 
-        :param match_criteria: A list of dictionaries defining a set of match criteria. See documentation
-        for the correct format and allowed parameters.
+        Parameters
+        ----------
+        match_criteria : list of dictionaries
+            Each inner dictionary defines an individual match type, choosing from amongst several available
+            mechanisms - exact match, apply function, or Levenshtein distance.
+
+        Example Format
+        --------------
+        match_types = [
+            {
+                'type_id': 1,
+                'method': 'exact_match',
+                'fields': ['first_name', 'last_name']
+            },
+            {
+                'type_id': 2,
+                'method': 'function',
+                'function': lambda row: row['first_name'][:1] + row['last_name'][:1]
+            },
+            {
+                'type_id': 3,
+                'method': 'levenshtein',
+                'fields': [
+                    {'field_name': 'first_name', 'precision': 1},
+                    {'field_name': 'last_name', 'precision': 2}
+                ]
+            },
         """
         for match_type in match_criteria:
             assert 'method' in match_type.keys()
@@ -208,8 +289,14 @@ class Matcher(object):
         """
         Identifies population of records within right_data where no match was made to a record in left_data.
 
-        :param match_results: Dataframe containing matches made by create_matches.
-        :return: Dataframe containing records from right_data where no match was found.
+        Parameters
+        ----------
+        match_results : DataFrame
+            Contains full set of results made according to provided match criteria
+
+        Returns
+        -------
+        Dataframe : Contains rows and columns from right_data where no match was made to left_data.
         """
         merged = pd.merge(match_results, self.right_data, on=self.right_id_field, how='right', indicator=True)
         right_only = merged[merged['_merge'] == 'right_only']
@@ -220,7 +307,8 @@ class Matcher(object):
         Used to check whether any records in right_data match to more than one record in left_data. Such an occurrence
         would suggest that one of the matches is made in error, or that records within left_data could potentially be
         combined.
-        :return:
+        Returns
+        -------
         """
         raise NotImplementedError
 
@@ -228,6 +316,16 @@ class Matcher(object):
 class MatchResult(object):
     """
     MatchResult is a container for data generated by Matcher.create_matches().
+
+    Parameters
+    ----------
+    matched_data : DataFrame
+        Contains records which have been matched to each other, including both unique IDs, match type, and original
+        data columns
+    left_id_field : string
+        Name of the field which uniquely identifies records within left_data
+    right_id_field : string
+        Name of the field which uniquely identifies records within rogjt_data
     """
     def __init__(self, matched_data, left_id_field, right_id_field):
         self.matched_data = matched_data
@@ -243,6 +341,12 @@ class MatchResult(object):
 
     @property
     def unique_matches(self):
+        """
+        Returns
+        -------
+        DataFrame: Distinct combinations of matches made between left and right datasets, including only the "highest"
+            match type per distinct pair of records.
+        """
         return remove_duplicate_matches(
             self.matched_data,
             [self.left_id_field, self.right_id_field]
