@@ -5,5 +5,4 @@ dependencies:
   - pandas
   - nose
   - pip:
-    - fuzzywuzzy
     - python-Levenshtein

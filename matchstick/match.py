@@ -41,6 +41,7 @@ def remove_duplicate_matches(data, id_fields):
         subset=id_fields,
         keep='first')
 
+
 class Matcher(object):
     """
     Matcher is used to perform matching or record linkage between two datasets (or between one dataset and itself).
@@ -89,7 +90,16 @@ class Matcher(object):
                 match_type_result = self.levenshtein(match_type['fields'], type_id)
             results.append(match_type_result)
         combined_results = pd.concat(results)
-        return MatchResult(combined_results, self.left_id_field, self.right_id_field)
+        # Keep only the most important fields, then merge back original data.
+        # Given variety of possible match types and column name permutations, it is easier to
+        # ignore intermediate fields generated during the match process itself. By showing the original data
+        # and match type, sufficient information on the nature of each match should be available.
+        key_fields = [self.left_id_field, self.right_id_field, 'match_type']
+        match_results = combined_results[key_fields]
+        match_results = match_results.merge(self.left_data, on=self.left_id_field)
+        match_results = match_results.merge(self.right_data, on=self.right_id_field)
+
+        return MatchResult(match_results, self.left_id_field, self.right_id_field)
 
     def match_on_field(self, field_list, type_id=None):
         """
@@ -99,7 +109,6 @@ class Matcher(object):
         :param type_id: Integer (optional) indicating the specific match type within a set of match criteria.
         :return: A DataFrame of the results matched using the provided parameters.
         """
-
         merged_df = pd.merge(self.left_data, self.right_data, on=field_list, suffixes=self.suffixes)
         merged_df['matched_to'] = merged_df[self.left_id_field]
         merged_df['match_type'] = type_id
@@ -195,6 +204,26 @@ class Matcher(object):
                     assert 'precision' in field.keys()
                     assert isinstance(field['precision'], int)
 
+    def unmatched(self, match_results):
+        """
+        Identifies population of records within right_data where no match was made to a record in left_data.
+
+        :param match_results: Dataframe containing matches made by create_matches.
+        :return: Dataframe containing records from right_data where no match was found.
+        """
+        merged = pd.merge(match_results, self.right_data, on=self.right_id_field, how='right', indicator=True)
+        right_only = merged[merged['_merge'] == 'right_only']
+        return pd.merge(self.right_data, right_only)[self.right_data.columns]
+
+    def match_to_multiple(self):
+        """
+        Used to check whether any records in right_data match to more than one record in left_data. Such an occurrence
+        would suggest that one of the matches is made in error, or that records within left_data could potentially be
+        combined.
+        :return:
+        """
+        raise NotImplementedError
+
 
 class MatchResult(object):
     """
@@ -204,8 +233,6 @@ class MatchResult(object):
         self.matched_data = matched_data
         self.left_id_field = left_id_field
         self.right_id_field = right_id_field
-        self.core_fields = [left_id_field, right_id_field, 'match_type']
-        self.core_data = matched_data[self.core_fields]
 
     def __str__(self):
         return "< MatchResult: {} records; {} to {} >".format(
@@ -217,7 +244,7 @@ class MatchResult(object):
     @property
     def unique_matches(self):
         return remove_duplicate_matches(
-            self.core_data,
+            self.matched_data,
             [self.left_id_field, self.right_id_field]
         )
 
